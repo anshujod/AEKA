@@ -1,0 +1,27 @@
+# python
+__pycache__/
+*.pyc
+
+# virtual env
+venv/
+ai_env/
+.env
+
+# mac
+.DS_Store
+
+# models
+*.pt
+*.pth
+*.bin
+
+# data
+data/
+datasets/
+
+# logs
+logs/
+
+# IDE
+.vscode/
+.idea/
