@@ -3,30 +3,26 @@ from config import LLM_MODEL
 
 client = OpenAI()
 
-
-def generate_answer(query, docs=None, memory_context=""):
-    docs = docs or []
-
-    # Build RAG context
+def format_docs_with_ids(docs):
     context = ""
     for i, d in enumerate(docs):
-        context += f"\nSOURCE {i+1}:\n{d.page_content}\n"
+        context += f"\n[Chunk {i+1}]\n{d.page_content}\n"
+    return context
 
-    # If no docs → direct mode
-    if not context.strip():
-        system_instruction = "You are a helpful general AI assistant."
-    else:
-        system_instruction = """
-You are a retrieval-augmented AI assistant.
-
-RULES:
-- Answer ONLY from provided sources
-- If answer not present → say: Not found
-- Be concise and structured
-"""
+def generate_answer(query, docs, memory_context=""):
+    context = format_docs_with_ids(docs)
 
     prompt = f"""
-Conversation so far:
+You are a grounded AI assistant.
+
+IMPORTANT RULES:
+- Answer ONLY using provided chunks
+- Every factual sentence MUST include citation like [1], [2]
+- If answer not found → say "Not found"
+- Do NOT use prior knowledge
+- Do NOT hallucinate
+
+Conversation:
 {memory_context}
 
 Context:
@@ -34,14 +30,13 @@ Context:
 
 Question:
 {query}
+
+Answer with citations:
 """
 
     stream = client.chat.completions.create(
         model=LLM_MODEL,
-        messages=[
-            {"role": "system", "content": system_instruction},
-            {"role": "user", "content": prompt},
-        ],
+        messages=[{"role": "user", "content": prompt}],
         stream=True
     )
 
@@ -50,9 +45,8 @@ Question:
     print("\n🤖 Answer:\n")
 
     for chunk in stream:
-        delta = chunk.choices[0].delta
-        if delta and delta.content:
-            token = delta.content
+        if chunk.choices[0].delta.content:
+            token = chunk.choices[0].delta.content
             full_response += token
             print(token, end="", flush=True)
 

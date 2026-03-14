@@ -1,3 +1,7 @@
+from langchain_chroma import Chroma
+from langchain_openai import OpenAIEmbeddings
+from langchain_core.documents import Document
+import uuid
 from collections import deque
 
 class ConversationMemory:
@@ -13,13 +17,21 @@ class ConversationMemory:
             context += f"User: {u}\nAssistant: {a}\n"
         return context
 
-
 class SemanticMemory:
+
     def __init__(self):
-        self.facts = []
+        self.vectorstore = Chroma(
+            collection_name="agent_memory",
+            embedding_function=OpenAIEmbeddings()
+        )
 
-    def add_fact(self, text):
-        self.facts.append(text)
+    def add(self, fact_text, metadata=None):
+        doc = Document(
+            page_content=fact_text,
+            metadata=metadata or {"id": str(uuid.uuid4())}
+        )
+        self.vectorstore.add_documents([doc])
 
-    def get_facts(self):
-        return "\n".join(self.facts)
+    def search(self, query, k=3):
+        docs = self.vectorstore.similarity_search(query, k=k)
+        return docs
