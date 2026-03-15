@@ -18,7 +18,7 @@ You are a grounded AI assistant.
 IMPORTANT RULES:
 - Answer ONLY using provided chunks
 - Every factual sentence MUST include citation like [1], [2]
-- If answer not found → say "Not found"
+- If you can partially answer, give the best concise answer with citations; only say "Not found" if no relevant info exists in the chunks.
 - Do NOT use prior knowledge
 - Do NOT hallucinate
 
@@ -34,22 +34,10 @@ Question:
 Answer with citations:
 """
 
-    stream = client.chat.completions.create(
+    res = client.chat.completions.create(
         model=LLM_MODEL,
         messages=[{"role": "user", "content": prompt}],
-        stream=True
+        stream=False
     )
 
-    full_response = ""
-
-    print("\n🤖 Answer:\n")
-
-    for chunk in stream:
-        if chunk.choices[0].delta.content:
-            token = chunk.choices[0].delta.content
-            full_response += token
-            print(token, end="", flush=True)
-
-    print("\n")
-
-    return full_response
+    return res.choices[0].message.content.strip()
