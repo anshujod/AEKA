@@ -198,19 +198,24 @@ def fact_detect(state: AgentState):
     log("🧠 FACT DETECT", "action")
 
     prompt = f"""
-Decide if the user is PROVIDING a first-person fact about themselves.
+Decide if the user is PROVIDING a factual statement (not a question) about the subject below.
+
+Subject: {state.get('subject', 'general')}
 
 Return exactly FACT or QUESTION.
 
-Mark QUESTION if:
-- asking for information (including about self)
-- referring to someone else (he/she/they/his/her/their)
-- general definition requests
-Examples FACT:
+Mark QUESTION if the user is asking, hypothetical, or unclear.
+Accept FACT for declarative statements about the subject, even if written in third person (e.g., "Anshu's CGPA is 9.25").
+
+Examples FACT (subject=user):
 - My CGPA is 9
 - I interned at Google
-- I studied at IIT Delhi
-Examples QUESTION (not fact):
+
+Examples FACT (subject=resume):
+- Anshu's CGPA is 9.25
+- He interned at Google
+
+Examples QUESTION:
 - What is my CGPA
 - What is his CGPA
 - Explain CGPA
@@ -229,12 +234,14 @@ Query:
     return {"is_fact": decision == "FACT"}
 
 
-def extract_structured_fact(statement: str):
-    """Use LLM to filter and structure user-provided facts."""
+def extract_structured_fact(statement: str, subject: str):
+    """Use LLM to filter and structure user-provided facts (user or resume)."""
     prompt = f"""
 You are a fact filter.
 
-Keep ONLY first-person factual statements about the user. Reject questions and statements about others.
+Subject: {subject}
+
+Keep ONLY declarative factual statements about the subject. Reject questions and unrelated chatter.
 
 Allowed categories:
 - personal_data (name, contact, demographic)
@@ -245,7 +252,7 @@ Allowed categories:
 If the statement is NOT an allowed fact, respond with REJECT.
 
 If it is allowed, respond ONLY with compact JSON:
-{{"category": "<category>", "fact": "<concise fact>", "subject": "user"}}
+{{"category": "<category>", "fact": "<concise fact>", "subject": "{subject}"}}
 
 Statement:
 {statement}
@@ -263,13 +270,14 @@ Statement:
 
     try:
         data = json.loads(content)
-        if data.get("subject") != "user":
+        if data.get("subject") != subject:
             return None
         if data.get("category") not in {"personal_data", "experience", "education", "numeric_fact"}:
             return None
         return data
     except Exception:
         return None
+
 def subject_tracker(state):
     global last_subject
 
@@ -300,13 +308,14 @@ def subject_tracker(state):
 # ---------- STORE FACT ----------
 def store_fact(state: AgentState):
     log("💾 STORE FACT", "action")
-    fact_payload = extract_structured_fact(state["query"])
+    subject = state.get("subject", "user")
+    fact_payload = extract_structured_fact(state["query"], subject)
 
     if not fact_payload:
         return {"answer": "Noted. (No storable personal fact detected.)"}
 
     fact_text = json.dumps(fact_payload)
-    semantic_memory.add(fact_text, metadata={"category": fact_payload["category"]})
+    semantic_memory.add(fact_text, metadata={"category": fact_payload["category"], "subject": subject})
     conv_memory.add(state["query"], "Noted.")
 
     return {"answer": "Got it. I will remember that."}
@@ -326,7 +335,10 @@ def direct_answer(state: AgentState):
 def memory_search(state: AgentState):
     log("🧠 MEMORY SEARCH", "action")
 
-    search_query = state.get("rewritten_query") or state["query"]
+    subject = state.get("subject", "general")
+    base_query = state.get("rewritten_query") or state["query"]
+    # Bias search with subject tag so resume/user facts rank correctly
+    search_query = f"{base_query} ({subject})" if subject in {"user", "resume"} else base_query
     mem_docs = semantic_memory.search(search_query)
 
     log(f"Memory hits: {len(mem_docs)}", "step")
@@ -341,7 +353,9 @@ def rewrite(state: AgentState):
     log("✏️ REWRITE", "action")
 
     conv_context = conv_memory.get_context()
-    mem_facts = semantic_memory.search(state["query"])
+    subject = state.get("subject", "general")
+    mem_query = f"{state['query']} ({subject})" if subject in {"user", "resume"} else state["query"]
+    mem_facts = semantic_memory.search(mem_query)
     fact_text = "\n".join([d.page_content for d in mem_facts]) if mem_facts else "None"
     retry_num = state.get("retry_count", 0)
     base_query = state.get("rewritten_query", state["query"])
