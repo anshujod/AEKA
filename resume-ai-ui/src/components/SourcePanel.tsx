@@ -17,19 +17,21 @@ export function SourcePanel({ sources }: SourcePanelProps) {
   if (!sources || sources.length === 0) return null;
 
   return (
-    <div className="mt-2 rounded-xl border border-slate-800/80 bg-slate-900/70 text-xs text-slate-200 shadow-inner shadow-black/40">
+    <div className="mt-3 overflow-hidden rounded-[22px] border border-white/10 bg-white/[0.03] text-xs text-slate-200 shadow-[0_18px_45px_rgba(0,0,0,0.22)] backdrop-blur-xl">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center justify-between px-3 py-2 text-left font-semibold text-slate-100"
+        className="flex w-full items-center justify-between px-4 py-3 text-left"
       >
-        Sources
-        <span className="text-[10px] text-slate-400">{open ? "Hide" : "Show"}</span>
+        <span className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-300">Evidence</span>
+        <span className="rounded-full border border-amber-300/20 bg-amber-300/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-100">
+          {open ? "Hide" : "Show"} {sources.length}
+        </span>
       </button>
       {open && (
-        <div className="divide-y divide-slate-800/80">
+        <div className="divide-y divide-white/6">
           {sources.map((s, idx) => (
-            <div key={`${s.title}-${idx}`} className="px-3 py-2 space-y-1">
+            <div key={`${s.title}-${idx}`} className="space-y-1 px-4 py-3">
               <div className="flex items-center justify-between">
                 <span className="font-semibold text-slate-100">{s.title || `Source ${idx + 1}`}</span>
                 {typeof s.confidence === "number" && (

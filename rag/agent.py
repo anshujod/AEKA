@@ -13,13 +13,14 @@ from reranker import rerank
 from generator import generate_answer
 from multi_query import generate_multi_queries
 from llm import chat_completion
+from config import STRICT_DOC_ONLY
 
 # ---------- MEMORY ----------
 conv_memory = ConversationMemory()
 semantic_memory = SemanticMemory()
 
 # Track most recent explicit subject to resolve pronouns across turns
-last_subject = "resume"
+last_subject = "general"
 
 # ---------- STATE ----------
 class AgentState(TypedDict):
@@ -35,11 +36,13 @@ class AgentState(TypedDict):
     full_docs: list
     tool_action: str
     tool_result: str
+    next_step: str
 
 # ---------- INIT ----------
 retriever = get_retriever()
 MODE = os.getenv("AGENT_MODE", "debug").lower()  # debug | user
 SHOW_STEPS = MODE == "debug"
+OUT_OF_SCOPE_RESPONSE = "I can only answer questions that are supported by the uploaded document(s)."
 
 COLORS = {
     "step": "\033[94m",      # blue
@@ -47,6 +50,11 @@ COLORS = {
     "warn": "\033[93m",      # yellow
     "reset": "\033[0m",
 }
+
+REFERENTIAL_TERMS = re.compile(
+    r"\b(this|that|these|those|it|its|they|them|their|theirs|he|him|his|she|her|hers|former|latter)\b",
+    re.IGNORECASE,
+)
 
 def log(msg, kind="step"):
     if not SHOW_STEPS:
@@ -104,11 +112,11 @@ def detect_tool(state):
 
     if any(w in q for w in ["today", "date", "day", "time"]):
         return "date"
-    if "resume" in q and any(w in q for w in ["edit", "update", "add", "append"]):
-        return "resume_edit"
     return None
 
 def tool_router(state: AgentState):
+    if STRICT_DOC_ONLY:
+        return {"tool_action": ""}
     tool = detect_tool(state)
     if tool:
         log(f"🛠️ TOOL ROUTER → {tool}", "action")
@@ -144,8 +152,6 @@ def tool_execute(state: AgentState):
     elif action == "date":
         now = datetime.now().astimezone()
         result = now.strftime("Today is %Y-%m-%d (%A), time %H:%M %Z")
-    elif action == "resume_edit":
-        result = "Resume editing tool stub: no mutation performed. Provide the update text and target section to apply."
     log(f"Tool result: {result}", "step")
     return {"answer": result, "tool_result": result, "tool_action": action, "streamed": False}
 
@@ -155,24 +161,30 @@ def decide(state: AgentState):
 
     subject = state.get("subject", "general")
 
+    if STRICT_DOC_ONLY:
+        if subject == "user":
+            log("Router: USER -> REJECT (strict doc mode)", "warn")
+            return {"route": "reject"}
+        log("Router: STRICT_DOC_ONLY -> RAG", "action")
+        return {"route": "rag"}
+
     # Subject-first routing
     if subject == "user":
         log("Router: MEMORY (by subject)", "action")
         return {"route": "rag"}
 
-    if subject == "resume":
-        log("Router: RESUME (by subject)", "action")
+    if subject == "document":
+        log("Router: DOCUMENT (by subject)", "action")
         return {"route": "rag"}
 
     prompt = f"""
 Classify query:
 
-FACT → user giving personal info
-RESUME → asking about resume person
-GENERAL → conceptual knowledge
+DOCUMENT → asking about the indexed documents
+GENERAL → conceptual knowledge or chat not tied to the indexed documents
 
 Return ONLY:
-FACT / RESUME / GENERAL
+DOCUMENT / GENERAL
 
 Query:
 {state['query']}
@@ -182,6 +194,9 @@ Query:
 
     decision = res.choices[0].message.content.strip().upper()
     log(f"Router: {decision}", "action")
+
+    if decision == "GENERAL" and STRICT_DOC_ONLY:
+        return {"route": "reject"}
 
     if decision == "GENERAL":
         return {"route": "direct"}
@@ -193,28 +208,30 @@ Query:
 def fact_detect(state: AgentState):
     log("🧠 FACT DETECT", "action")
 
+    if STRICT_DOC_ONLY and state.get("subject") != "user":
+        return {"is_fact": False}
+
     prompt = f"""
-Decide if the user is PROVIDING a factual statement (not a question) about the subject below.
+Decide if the user is PROVIDING a durable factual statement about the subject below.
 
 Subject: {state.get('subject', 'general')}
 
 Return exactly FACT or QUESTION.
 
 Mark QUESTION if the user is asking, hypothetical, or unclear.
-Accept FACT for declarative statements about the subject, even if written in third person (e.g., "Anshu's CGPA is 9.25").
+Accept FACT for declarative statements about the user or the indexed documents.
 
 Examples FACT (subject=user):
-- My CGPA is 9
-- I interned at Google
+- My name is Alice
+- I prefer concise answers
 
-Examples FACT (subject=resume):
-- Anshu's CGPA is 9.25
-- He interned at Google
+Examples FACT (subject=document):
+- This document is the Q4 report
+- The paper says the experiment used 500 samples
 
 Examples QUESTION:
-- What is my CGPA
-- What is his CGPA
-- Explain CGPA
+- What does this document say about revenue?
+- Explain this section
 
 Query:
 {state['query']}
@@ -228,7 +245,7 @@ Query:
 
 
 def extract_structured_fact(statement: str, subject: str):
-    """Use LLM to filter and structure user-provided facts (user or resume)."""
+    """Use LLM to filter and structure user-provided facts about the user or document corpus."""
     prompt = f"""
 You are a fact filter.
 
@@ -238,8 +255,9 @@ Keep ONLY declarative factual statements about the subject. Reject questions and
 
 Allowed categories:
 - personal_data (name, contact, demographic)
-- experience (jobs, projects, internships)
-- education (schools, degrees, grades like CGPA)
+- preference (answer style, goals, persistent preferences)
+- background (work, education, role, domain context)
+- document_fact (claims or labels about the indexed documents)
 - numeric_fact (scores, counts, metrics)
 
 If the statement is NOT an allowed fact, respond with REJECT.
@@ -262,7 +280,7 @@ Statement:
         data = json.loads(content)
         if data.get("subject") != subject:
             return None
-        if data.get("category") not in {"personal_data", "experience", "education", "numeric_fact"}:
+        if data.get("category") not in {"personal_data", "preference", "background", "document_fact", "numeric_fact"}:
             return None
         return data
     except Exception:
@@ -273,28 +291,28 @@ def subject_tracker(state):
 
     q_raw = state["query"]
     q = q_raw.lower()
+    document_terms = r"\b(document|documents|file|files|paper|papers|article|articles|pdf|pdfs|text|texts|report|reports|manual|manuals|book|books|chapter|chapters|source|sources|corpus|notes?)\b"
+    referential_terms = r"\b(this|that|these|those|it|its|they|them|their|theirs|he|him|his|she|her|hers)\b"
 
-    # First-person (possessive/subject) → user; ignore generic "me" like "tell me about X"
-    if re.search(r"\b(i|my|mine)\b", q):
+    if re.search(document_terms, q):
+        last_subject = "document"
+        return {"subject": "document"}
+
+    # First-person (possessive/subject) → user
+    if re.search(r"\b(i|me|my|mine|we|our|ours)\b", q):
         last_subject = "user"
         return {"subject": "user"}
 
-    # Explicit resume mentions
-    if re.search(r"\b(anshu|resume)\b", q):
-        last_subject = "resume"
-        return {"subject": "resume"}
-
-    # Third-person pronouns rely on conversation memory; prefer resume if unclear
-    if re.search(r"\b(he|him|his|she|her|hers|they|them|their|theirs)\b", q):
-        fallback = last_subject if last_subject != "user" else "resume"
+    # Pronouns and referential phrases rely on recent context; default to documents.
+    if re.search(referential_terms, q):
+        fallback = last_subject if last_subject != "general" else "document"
         return {"subject": fallback}
 
     # Definition-style questions without subjects → general
     if re.search(r"\bwhat is\b|\bdefine\b|\bexplain\b", q):
         return {"subject": "general"}
 
-    # Fallback to last known subject, default resume for routing
-    return {"subject": last_subject or "general"}
+    return {"subject": "general"}
 # ---------- STORE FACT ----------
 def store_fact(state: AgentState):
     log("💾 STORE FACT", "action")
@@ -302,13 +320,18 @@ def store_fact(state: AgentState):
     fact_payload = extract_structured_fact(state["query"], subject)
 
     if not fact_payload:
-        return {"answer": "Noted. (No storable personal fact detected.)"}
+        return {"answer": "Noted. (No storable fact detected.)"}
 
     fact_text = json.dumps(fact_payload)
     semantic_memory.add(fact_text, metadata={"category": fact_payload["category"], "subject": subject})
     conv_memory.add(state["query"], "Noted.")
 
     return {"answer": "Got it. I will remember that."}
+
+# ---------- REJECT ----------
+def reject_out_of_scope(state: AgentState):
+    log("🚫 OUT OF SCOPE", "warn")
+    return {"answer": OUT_OF_SCOPE_RESPONSE, "streamed": False}
 
 # ---------- DIRECT ----------
 def direct_answer(state: AgentState):
@@ -322,10 +345,16 @@ def direct_answer(state: AgentState):
 def memory_search(state: AgentState):
     log("🧠 MEMORY SEARCH", "action")
 
+    if STRICT_DOC_ONLY:
+        return {
+            "memory_docs": [],
+            "rewritten_query": state.get("rewritten_query") or state["query"]
+        }
+
     subject = state.get("subject", "general")
     base_query = state.get("rewritten_query") or state["query"]
-    # Bias search with subject tag so resume/user facts rank correctly
-    search_query = f"{base_query} ({subject})" if subject in {"user", "resume"} else base_query
+    # Bias search with subject tag so user/document facts rank correctly
+    search_query = f"{base_query} ({subject})" if subject in {"user", "document"} else base_query
     mem_docs = semantic_memory.search(search_query)
 
     log(f"Memory hits: {len(mem_docs)}", "step")
@@ -341,30 +370,33 @@ def rewrite(state: AgentState):
 
     conv_context = conv_memory.get_context()
     subject = state.get("subject", "general")
-    mem_query = f"{state['query']} ({subject})" if subject in {"user", "resume"} else state["query"]
+    mem_query = f"{state['query']} ({subject})" if subject in {"user", "document"} else state["query"]
     mem_facts = semantic_memory.search(mem_query)
     fact_text = "\n".join([d.page_content for d in mem_facts]) if mem_facts else "None"
     retry_num = state.get("retry_count", 0)
     base_query = state.get("rewritten_query", state["query"])
-    # Heuristic expansion: if asking internships, also include projects to widen recall
-    if "intern" in base_query.lower() and "project" not in base_query.lower():
-        base_query = base_query + " projects"
+
+    # For standalone questions, avoid LLM rewrite so prior turns do not leak
+    # into the next retrieval query.
+    if retry_num == 0 and not REFERENTIAL_TERMS.search(base_query):
+        log(f"Rewrite skipped: {base_query}", "step")
+        return {"rewritten_query": base_query}
 
     prompt = f"""
 Rewrite the user's query for retrieval with pronouns resolved.
 
 Context:
 - Subject: {state.get('subject', 'general')}
-- Resume person: Anshu Prakash
+- Indexed corpus: the currently ingested documents
 - Conversation:\n{conv_context or 'None'}
-- Known user facts (JSON):\n{fact_text}
+- Known memory facts (JSON):\n{fact_text}
 - Retry attempt: {retry_num}
 - Previous rewrite: {state.get('rewritten_query', 'None')}
 
 Rules:
 - Resolve pronouns like it/that/this/he/she/they to the correct entity using the conversation and facts.
-- If subject is "user", keep it in first-person terms (e.g., my CGPA).
-- If subject is "resume", use the resume person's explicit name when possible.
+- If subject is "user", keep the wording aligned to the user's self-reference.
+- If subject is "document", rewrite toward the relevant document, section, topic, or named entity from the indexed corpus.
 - If retry attempt > 0, rephrase with different wording, add synonymous keywords that could help retrieval, and avoid repeating the exact previous phrasing.
 - Do NOT invent new facts; keep meaning and intent.
 - Return ONLY the rewritten query text.
@@ -424,12 +456,12 @@ def generate(state: AgentState):
     all_docs = state.get("memory_docs", []) + state.get("docs", [])
 
     if not all_docs:
-        return {"answer": "Not found in resume or memory."}
+        return {"answer": "I can't answer that from the uploaded document(s)."}
 
     answer = generate_answer(
         state["rewritten_query"],
         all_docs,
-        conv_memory.get_context()
+        "" if STRICT_DOC_ONLY else conv_memory.get_context()
     )
 
     conv_memory.add(state["query"], answer)
@@ -447,7 +479,7 @@ def evaluate_retrieval(state: AgentState):
     # Quick confidence heuristic: empty docs -> low
     if not docs:
         return {
-            "next_step": "retry" if retry_count < 2 else "generate",
+            "next_step": "retry" if retry_count < 2 else "reject",
             "retry_count": retry_count,
             "docs": full_docs
         }
@@ -471,6 +503,9 @@ Snippets:
 
     if decision.startswith("LOW") and retry_count < 2:
         return {"next_step": "retry", "retry_count": retry_count + 1, "docs": full_docs}
+
+    if decision.startswith("LOW") and STRICT_DOC_ONLY:
+        return {"next_step": "reject", "retry_count": retry_count, "docs": full_docs}
 
     # On final pass, fall back to full docs to maximize evidence
     return {"next_step": "generate", "retry_count": retry_count, "docs": full_docs}
@@ -539,6 +574,7 @@ workflow.add_node("decide", decide)
 workflow.add_node("fact", fact_detect)
 workflow.add_node("store", store_fact)
 workflow.add_node("direct", direct_answer)
+workflow.add_node("reject", reject_out_of_scope)
 workflow.add_node("rewrite", rewrite)
 workflow.add_node("memory", memory_search)
 workflow.add_node("retrieve", retrieve)
@@ -568,6 +604,7 @@ workflow.add_conditional_edges(
     lambda s: s["route"],
     {
         "direct": "direct",
+        "reject": "reject",
         "rag": "fact"
     }
 )
@@ -604,11 +641,13 @@ workflow.add_conditional_edges(
     lambda s: s.get("next_step", "generate"),
     {
         "generate": "generate",
+        "reject": "reject",
         "retry": "rewrite"
     }
 )
 
 workflow.add_edge("direct", END)
+workflow.add_edge("reject", END)
 workflow.add_edge("generate", END)
 
 app = workflow.compile()

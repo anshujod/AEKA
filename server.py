@@ -3,8 +3,6 @@ import asyncio
 import importlib.util
 from pathlib import Path
 import sys
-import re
-import json
 
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
@@ -22,7 +20,6 @@ agent_module = importlib.util.module_from_spec(spec)  # type: ignore
 assert spec and spec.loader
 spec.loader.exec_module(agent_module)  # type: ignore
 agent_app = agent_module.app  # type: ignore
-semantic_memory = agent_module.semantic_memory  # type: ignore
 
 app = FastAPI()
 
@@ -43,18 +40,7 @@ async def chat(body: dict):
     """
     message = body.get("message", "")
 
-    # Heuristic: capture CGPA facts stated by the user (any form)
-    cgpa_match = re.search(r"(?:cgpa[^0-9]*([0-9]+(?:\.[0-9]+)?)|([0-9]+(?:\.[0-9]+)?)\s*cgpa)", message, re.IGNORECASE)
-    if cgpa_match:
-        cgpa_val = cgpa_match.group(1) or cgpa_match.group(2)
-        fact = {
-            "category": "education",
-            "fact": f"CGPA: {cgpa_val}",
-            "subject": "resume"
-        }
-        semantic_memory.add(json.dumps(fact), metadata={"category": "education"})
-
-    # Run the agent in a background thread (LangGraph + OpenAI are sync here)
+    # Run the agent in a background thread (the retrieval stack is sync here)
     def run_agent():
         result = agent_app.invoke({"query": message})
         return result.get("answer", "")
