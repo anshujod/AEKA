@@ -2,7 +2,8 @@ from llm import chat_completion
 
 def generate_multi_queries(query):
     prompt = f"""
-Generate 3 different search queries for retrieving resume information.
+Generate 3 different search queries for retrieving information from the indexed documents.
+Keep the intent the same, but vary wording and keywords to improve recall.
 
 Original Query:
 {query}
