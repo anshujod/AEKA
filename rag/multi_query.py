@@ -1,6 +1,4 @@
-from openai import OpenAI
-
-client = OpenAI()
+from llm import chat_completion
 
 def generate_multi_queries(query):
     prompt = f"""
@@ -12,10 +10,7 @@ Original Query:
 Return each query on new line.
 """
 
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}]
-    )
+    response = chat_completion(messages=[{"role": "user", "content": prompt}])
 
     queries = response.choices[0].message.content.split("\n")
     return [q.strip() for q in queries if q.strip()]

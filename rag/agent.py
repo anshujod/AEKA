@@ -2,7 +2,6 @@ from langgraph.graph import StateGraph, END
 from memory import ConversationMemory, SemanticMemory
 from typing import TypedDict
 from langchain_core.documents import Document
-from openai import OpenAI
 import re
 import json
 import os
@@ -13,6 +12,7 @@ from retriever import get_retriever
 from reranker import rerank
 from generator import generate_answer
 from multi_query import generate_multi_queries
+from llm import chat_completion
 
 # ---------- MEMORY ----------
 conv_memory = ConversationMemory()
@@ -37,7 +37,6 @@ class AgentState(TypedDict):
     tool_result: str
 
 # ---------- INIT ----------
-client = OpenAI()
 retriever = get_retriever()
 MODE = os.getenv("AGENT_MODE", "debug").lower()  # debug | user
 SHOW_STEPS = MODE == "debug"
@@ -179,10 +178,7 @@ Query:
 {state['query']}
 """
 
-    res = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}]
-    )
+    res = chat_completion(messages=[{"role": "user", "content": prompt}])
 
     decision = res.choices[0].message.content.strip().upper()
     log(f"Router: {decision}", "action")
@@ -224,10 +220,7 @@ Query:
 {state['query']}
 """
 
-    res = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}]
-    )
+    res = chat_completion(messages=[{"role": "user", "content": prompt}])
 
     decision = res.choices[0].message.content.strip().upper()
 
@@ -258,10 +251,7 @@ Statement:
 {statement}
 """
 
-    res = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}]
-    )
+    res = chat_completion(messages=[{"role": "user", "content": prompt}])
 
     content = res.choices[0].message.content.strip()
 
@@ -324,10 +314,7 @@ def store_fact(state: AgentState):
 def direct_answer(state: AgentState):
     log("⚡ DIRECT LLM", "action")
 
-    res = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": state["query"]}]
-    )
+    res = chat_completion(messages=[{"role": "user", "content": state["query"]}])
 
     return {"answer": res.choices[0].message.content, "streamed": False}
 
@@ -386,10 +373,7 @@ Original query:
 {base_query}
 """
 
-    res = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}]
-    )
+    res = chat_completion(messages=[{"role": "user", "content": prompt}])
 
     rq = res.choices[0].message.content.strip()
 
@@ -480,10 +464,7 @@ Query: {state['rewritten_query']}
 Snippets:
 {sample_context}
 """
-    res = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}]
-    )
+    res = chat_completion(messages=[{"role": "user", "content": prompt}])
 
     decision = res.choices[0].message.content.strip().upper()
     log(f"Retrieval confidence: {decision}", "step")
@@ -540,10 +521,7 @@ Chunk:
 {d.page_content}
 """
         try:
-            res = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role": "user", "content": prompt}]
-            )
+            res = chat_completion(messages=[{"role": "user", "content": prompt}])
             summary = res.choices[0].message.content.strip()
             filtered_docs.append(Document(page_content=summary, metadata=d.metadata))
             current_budget += len(summary)

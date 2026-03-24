@@ -1,15 +1,22 @@
 from langchain_community.vectorstores import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
-from openai import OpenAI
+from pathlib import Path
+import sys
+
+RAG_DIR = Path(__file__).parent / "rag"
+sys.path.insert(0, str(RAG_DIR))
+
+from config import EMBEDDING_MODEL, VECTOR_DB_PATH
+from llm import chat_completion
 
 # 🔹 embedding model
 embeddings = HuggingFaceEmbeddings(
-    model_name="sentence-transformers/all-MiniLM-L6-v2"
+    model_name=EMBEDDING_MODEL
 )
 
 # 🔹 vector DB
 vectorstore = Chroma(
-    persist_directory="chroma_db",
+    persist_directory=VECTOR_DB_PATH,
     embedding_function=embeddings
 )
 
@@ -17,18 +24,12 @@ retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
 
 query = input("Ask a question: ")
 
-# 🔹 manual multi query generation
-client = OpenAI()
-
 multi_query_prompt = f"""
 Generate 3 different search queries for:
 {query}
 """
 
-mq = client.chat.completions.create(
-    model="gpt-4o-mini",
-    messages=[{"role": "user", "content": multi_query_prompt}]
-)
+mq = chat_completion(messages=[{"role": "user", "content": multi_query_prompt}])
 
 queries = mq.choices[0].message.content.split("\n")
 
@@ -55,10 +56,7 @@ Question:
 {query}
 """
 
-response = client.chat.completions.create(
-    model="gpt-4o-mini",
-    messages=[{"role": "user", "content": final_prompt}]
-)
+response = chat_completion(messages=[{"role": "user", "content": final_prompt}])
 
 print("\n🤖 Answer:\n")
 print(response.choices[0].message.content)
