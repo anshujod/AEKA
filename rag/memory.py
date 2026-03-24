@@ -1,8 +1,9 @@
 from langchain_chroma import Chroma
-from langchain_openai import OpenAIEmbeddings
 from langchain_core.documents import Document
+from langchain_huggingface import HuggingFaceEmbeddings
 import uuid
 from collections import deque
+from config import EMBEDDING_MODEL
 
 class ConversationMemory:
     def __init__(self, max_turns=5):
@@ -22,7 +23,7 @@ class SemanticMemory:
     def __init__(self):
         self.vectorstore = Chroma(
             collection_name="agent_memory",
-            embedding_function=OpenAIEmbeddings()
+            embedding_function=HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
         )
 
     def add(self, fact_text, metadata=None):

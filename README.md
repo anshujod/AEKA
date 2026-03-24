@@ -1,15 +1,15 @@
 # AEKA RAG Agent
 
-Compact RAG playground that indexes a resume PDF, retrieves with a hybrid dense/BM25 retriever, reranks with a cross-encoder, and answers with OpenAI.
+Compact RAG playground that indexes a resume PDF, retrieves with a hybrid dense/BM25 retriever, reranks with a cross-encoder, and answers with a configurable LLM provider. The default setup now uses Groq.
 
 ## Prerequisites
 - Python 3.10+ and `pip`
-- OpenAI API key (`export OPENAI_API_KEY=...`)
+- Groq API key (`export GROQ_API_KEY=...`)
 - Install deps (minimal set):
   ```bash
-  pip install langchain-community langchain-openai langchain-huggingface \
+  pip install langchain-community langchain-huggingface \
     langchain-text-splitters langchain-chroma chromadb sentence-transformers \
-    langgraph openai
+    langgraph openai fastapi uvicorn
   ```
 
 ## 1) Ingest the resume
@@ -39,7 +39,9 @@ python rag/pipeline.py
 ## Configuration knobs (`rag/config.py`)
 - `EMBEDDING_MODEL`, `RERANKER_MODEL`
 - `VECTOR_DB_PATH` (default `chroma_db`)
-- `LLM_MODEL` (default `gpt-4o-mini`)
+- `LLM_PROVIDER` (default `groq`)
+- `LLM_MODEL` (default `llama-3.1-8b-instant`)
+- `LLM_BASE_URL` (default `https://api.groq.com/openai/v1`)
 - `TOP_K_RETRIEVAL`, `TOP_K_RERANK`
 
 ## Data & memory
@@ -48,6 +50,7 @@ python rag/pipeline.py
 
 ## Notes
 - CGPA→percentage tool uses a 9.5 factor for 10-point scales.
+- The repo uses the OpenAI-compatible Python SDK against Groq by default, so no GPT model is required.
 - If LangChain warns about deprecated `Chroma`, install `langchain-chroma` (already referenced in code).
 
 ## UI (Next.js)

@@ -1,7 +1,4 @@
-from openai import OpenAI
-from config import LLM_MODEL
-
-client = OpenAI()
+from llm import chat_completion
 
 def format_docs_with_ids(docs):
     context = ""
@@ -34,10 +31,6 @@ Question:
 Answer with citations:
 """
 
-    res = client.chat.completions.create(
-        model=LLM_MODEL,
-        messages=[{"role": "user", "content": prompt}],
-        stream=False
-    )
+    res = chat_completion(messages=[{"role": "user", "content": prompt}], stream=False)
 
     return res.choices[0].message.content.strip()
