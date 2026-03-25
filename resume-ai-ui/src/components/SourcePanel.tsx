@@ -23,9 +23,9 @@ export function SourcePanel({ sources }: SourcePanelProps) {
         onClick={() => setOpen((v) => !v)}
         className="flex w-full items-center justify-between px-4 py-3 text-left"
       >
-        <span className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-300">Evidence</span>
+        <span className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-300">Sources</span>
         <span className="rounded-full border border-amber-300/20 bg-amber-300/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-100">
-          {open ? "Hide" : "Show"} {sources.length}
+          {sources.length}
         </span>
       </button>
       {open && (
@@ -35,7 +35,7 @@ export function SourcePanel({ sources }: SourcePanelProps) {
               <div className="flex items-center justify-between">
                 <span className="font-semibold text-slate-100">{s.title || `Source ${idx + 1}`}</span>
                 {typeof s.confidence === "number" && (
-                  <span className="text-[11px] text-slate-400">Confidence: {(s.confidence * 100).toFixed(0)}%</span>
+                  <span className="text-[11px] text-slate-400">{(s.confidence * 100).toFixed(0)}%</span>
                 )}
               </div>
               <p className="text-slate-300 leading-relaxed">{s.snippet}</p>

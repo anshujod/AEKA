@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "AEKA Document Studio",
-  description: "A polished workspace for exploring indexed documents with memory-aware chat."
+  title: "AEKA",
+  description: "Document chat."
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

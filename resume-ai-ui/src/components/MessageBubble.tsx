@@ -22,7 +22,6 @@ export function MessageBubble({ role, content }: MessageBubbleProps) {
           >
             {isUser ? "You" : "AEKA"}
           </span>
-          <span className="text-slate-500">{isUser ? "Prompt" : "Response"}</span>
         </div>
 
         <div

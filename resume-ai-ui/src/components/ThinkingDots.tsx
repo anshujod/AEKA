@@ -4,7 +4,7 @@ export function ThinkingDots() {
   const dots = [0, 1, 2];
   return (
     <div className="rise-in inline-flex items-center gap-3 rounded-full border border-cyan-300/15 bg-cyan-300/10 px-4 py-2 text-xs font-medium text-cyan-50 shadow-[0_18px_40px_rgba(6,182,212,0.12)] backdrop-blur-xl">
-      <span className="text-[10px] uppercase tracking-[0.24em] text-cyan-100/80">Searching</span>
+      <span className="text-[10px] uppercase tracking-[0.24em] text-cyan-100/80">Working</span>
       <div className="flex items-center gap-2">
         {dots.map((i) => (
           <span
